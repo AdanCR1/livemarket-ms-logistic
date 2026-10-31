@@ -1,0 +1,18 @@
+{
+  "name": "livemarket-ms-logistic",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.9.1",
+    "@supabase/supabase-js": "^2.118.0",
+    "hono": "^4.13.14",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "wrangler": "^4.110.0"
+  }
+}
