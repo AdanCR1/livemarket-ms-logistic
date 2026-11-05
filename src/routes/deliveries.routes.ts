@@ -20,6 +20,7 @@ import {
 import { getDelivery } from '../repositories/deliveries.repository.js'
 import { ApiError } from '../lib/errors.js'
 import { pairingHash } from '../services/pairing.service.js'
+import { canReadDelivery, validLocation } from '../services/delivery-access.js'
 
 const r = new Hono<AppEnv>()
 r.use('*', auth)
@@ -68,16 +69,17 @@ r.get('/:id', async (c) => {
   const d = await getDelivery(c.req.param('id'))
   const a = c.get('actor')
 
-  const isCustomer = a.role === 'B2C' && a.id === d.customer_id
-  const isMerchant = a.role === 'B2B' && a.storeId === d.store_id
-  const isDriver = a.role === 'DRIVER' && a.id === d.driver_id
-
-  if (!isCustomer && !isMerchant && !isDriver) {
+  if (!canReadDelivery(a, d)) {
     throw new ApiError(404, 'NOT_FOUND', 'Envío no encontrado')
   }
 
-  const { pairing_code_hash, ...safe } = d
-  return c.json({ success: true, data: safe })
+  const { pairing_code_hash, last_latitude, last_longitude, ...safe } = d
+  c.header('Cache-Control', 'no-store')
+  return c.json({ success: true, data: {
+    ...safe,
+    last_latitude: d.status === 'IN_TRANSIT' ? last_latitude : null,
+    last_longitude: d.status === 'IN_TRANSIT' ? last_longitude : null,
+  } })
 })
 
 // ─── POST /:id/pair (Método tradicional con ID + Código) ─────────────────────
@@ -91,10 +93,10 @@ r.post('/:id/pair', zValidator('json', pairingSchema), async (c) => {
 // ─── POST y PATCH /:id/location (Soporta lat/lng y latitude/longitude) ───────
 const handleLocation = async (c: any) => {
   const body = await c.req.json().catch(() => ({}))
-  const lat = Number(body.lat ?? body.latitude)
-  const lng = Number(body.lng ?? body.longitude)
+  const lat = body?.lat ?? body?.latitude
+  const lng = body?.lng ?? body?.longitude
 
-  if (isNaN(lat) || isNaN(lng)) {
+  if (!validLocation(lat, lng) || typeof lng !== 'number') {
     return c.json({ success: false, error: 'Coordenadas lat y lng inválidas' }, 400)
   }
 

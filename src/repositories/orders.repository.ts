@@ -1,7 +1,7 @@
 import { db, dbResult } from '../lib/supabase.js'
 import { ApiError } from '../lib/errors.js'
 export async function getOrder(id: string) {
-  const {data,error}=await db.from('orders').select('*,order_items(*),deliveries(*)').eq('id',id).maybeSingle()
+  const {data,error}=await db.from('orders').select('*,order_items(*),deliveries(id,status,started_at,delivered_at)').eq('id',id).maybeSingle()
   if(error) throw new Error(error.message)
   if(!data) throw new ApiError(404,'NOT_FOUND','Pedido no encontrado')
   return data
@@ -21,4 +21,12 @@ export async function listOrders(filter: { customer_id?: string; store_id?: stri
   if(filter.store_id) q=q.eq('store_id',filter.store_id)
   const {data,error}=await q
   return dbResult(data,error)
+}
+
+/** Identifica una orden persistida aunque la respuesta original se perdiera. */
+export async function findOrderByRequest(customerId:string, key:string) {
+  const {data,error}=await db.from('orders').select('id,reservation_id')
+    .eq('customer_id',customerId).eq('idempotency_key',key).maybeSingle();
+  if(error)throw error;
+  return data;
 }

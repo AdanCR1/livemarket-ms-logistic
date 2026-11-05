@@ -4,24 +4,11 @@ import { getOrder } from '../repositories/orders.repository.js'
 import { callDelivery, getDelivery } from '../repositories/deliveries.repository.js'
 import { newPairingCode, pairingHash } from './pairing.service.js'
 import type { Actor } from '../middleware/auth.js'
+import { canRegisterArrival, isAssignedDriver } from './delivery-access.js'
 
-async function notifyEscrow(endpoint: string, payload: Record<string, unknown>) {
-  const ms6Url = process.env.MS6_URL || 'http://localhost:8788';
-  const paymentKey = process.env.PAYMENTS_INTERNAL_KEY;
-
-  try {
-    await fetch(`${ms6Url.replace(/\/$/, '')}/api/internal/escrow/${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Internal-Key': paymentKey || '',
-      },
-      body: JSON.stringify(payload),
-    });
-  } catch (err: any) {
-    console.error(`[Escrow Notification Failed: ${endpoint}]:`, err.message);
-  }
-}
+// La notificación financiera ya no se envía desde la solicitud HTTP.
+// La migración 002_escrow_outbox.sql crea un evento transaccional al cambiar
+// deliveries.status y /api/internal/escrow-sync lo despacha con reintentos.
 
 export async function createDelivery(
   orderId: string,
@@ -76,6 +63,9 @@ export async function pairDelivery(id: string, code: string, actor: Actor) {
 
 export async function setLocation(id: string, actor: Actor, lat: number, lng: number) {
   if (actor.role !== 'DRIVER') throw new ApiError(403, 'FORBIDDEN', 'Requiere rol DRIVER')
+  const delivery = await getDelivery(id)
+  if (!isAssignedDriver(actor, delivery)) throw new ApiError(403, 'FORBIDDEN', 'Envío no asignado')
+  if (delivery.status !== 'IN_TRANSIT') throw new ApiError(409, 'INVALID_TRANSITION', 'La entrega no está en tránsito')
   return callDelivery('ms4_set_location', {
     p_delivery_id: id,
     p_driver_id: actor.id,
@@ -97,6 +87,11 @@ export async function confirmDelivery(id: string, actor: Actor) {
 
 export async function setDeliveryStatus(id: string, actor: Actor, status: string) {
   if (actor.role !== 'DRIVER') throw new ApiError(403, 'FORBIDDEN', 'Requiere rol DRIVER')
+  const delivery = await getDelivery(id)
+  if (!isAssignedDriver(actor, delivery)) throw new ApiError(403, 'FORBIDDEN', 'Envío no asignado')
+  if (status === 'DELIVERED' && !canRegisterArrival(delivery.status)) {
+    throw new ApiError(409, 'INVALID_TRANSITION', 'Solo un envío en tránsito puede registrar llegada')
+  }
 
   const result = await callDelivery('ms4_delivery_status', {
     p_delivery_id: id,
@@ -104,14 +99,6 @@ export async function setDeliveryStatus(id: string, actor: Actor, status: string
     p_status: status,
   })
 
-  // Al pasar a DELIVERED se activa la cuenta regresiva de 5 minutos en MS6
-  if (status === 'DELIVERED') {
-    const delivery = await getDelivery(id)
-    await notifyEscrow('delivered', {
-      order_id: delivery.order_id,
-      timer_minutes: 5,
-    })
-  }
 
   return result
 }
@@ -128,12 +115,6 @@ export async function disputeDelivery(id: string, actor: Actor, reason: string) 
     p_reason: reason,
   })
 
-  // Se congela la custodia en MS6 de inmediato
-  await notifyEscrow('dispute', {
-    order_id: delivery.order_id,
-    action: 'FREEZE',
-    reason,
-  })
 
   return result
 }
