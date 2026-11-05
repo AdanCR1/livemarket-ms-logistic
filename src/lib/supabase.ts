@@ -1,13 +1,16 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Cache para no instanciar el cliente en cada request
 let cachedClient: SupabaseClient | null = null;
 
-export function getDb(env?: any): SupabaseClient {
+export function initDb(env?: any): SupabaseClient {
   if (cachedClient) return cachedClient;
 
-  const url = env?.SUPABASE_URL || process.env?.SUPABASE_URL;
-  const key = env?.SUPABASE_SERVICE_ROLE_KEY || process.env?.SUPABASE_SERVICE_ROLE_KEY;
+  const url =
+    env?.SUPABASE_URL ||
+    (typeof process !== 'undefined' ? process.env?.SUPABASE_URL : undefined);
+  const key =
+    env?.SUPABASE_SERVICE_ROLE_KEY ||
+    (typeof process !== 'undefined' ? process.env?.SUPABASE_SERVICE_ROLE_KEY : undefined);
 
   if (!url || !key) {
     throw new Error('Variables de entorno SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY no definidas.');
@@ -20,7 +23,13 @@ export function getDb(env?: any): SupabaseClient {
   return cachedClient;
 }
 
-// Proxy para mantener compatibilidad si repositorios llaman a db.from(...)
+export function getDb(env?: any): SupabaseClient {
+  if (env) return initDb(env);
+  if (cachedClient) return cachedClient;
+  return initDb(undefined);
+}
+
+// Proxy transparente: si cachedClient ya fue inicializado por el middleware, delega sin errores
 export const db = new Proxy({} as SupabaseClient, {
   get(_target, prop) {
     const client = getDb();
