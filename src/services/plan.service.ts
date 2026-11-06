@@ -11,6 +11,7 @@ const TIMEOUT_MS = 8000;
 type PlanResponse = {
   success?: boolean;
   data?: {
+    store_id?: unknown;
     can_accept_orders?: unknown;
     plan?: unknown;
   };
@@ -124,10 +125,10 @@ function resolveConfiguration(env: PlanEnv) {
   };
 }
 
-export async function assertStoreCanSell(
+export async function getStorePlan(
   storeId: string,
   env: PlanEnv
-): Promise<void> {
+): Promise<{ store_id: string; can_accept_orders: boolean; plan: string | null }> {
   const { base, internalKey } = resolveConfiguration(env);
 
   const target =
@@ -202,7 +203,7 @@ export async function assertStoreCanSell(
 
   const canAccept = body.data?.can_accept_orders;
 
-  if (typeof canAccept !== 'boolean') {
+  if (typeof canAccept !== 'boolean' || body.data?.store_id !== storeId) {
     diagnostic('error', 'PLAN_INVALID_RESPONSE', {
       storeId,
       elapsedMs,
@@ -227,11 +228,8 @@ export async function assertStoreCanSell(
           : 'unknown',
     });
 
-    throw new ApiError(
-      403,
-      'PLAN_REQUIRED',
-      'Tienda sin acceso a compras PRO'
-    );
+    return { store_id: storeId, can_accept_orders: false,
+      plan: typeof body.data?.plan === 'string' ? body.data.plan : null };
   }
 
   diagnostic('info', 'PLAN_VERIFIED', {
@@ -242,4 +240,13 @@ export async function assertStoreCanSell(
         ? body.data.plan
         : 'unknown',
   });
+  return { store_id: storeId, can_accept_orders: true,
+    plan: typeof body.data?.plan === 'string' ? body.data.plan : null };
+}
+
+export async function assertStoreCanSell(storeId: string, env: PlanEnv): Promise<void> {
+  const result = await getStorePlan(storeId, env);
+  if (!result.can_accept_orders) {
+    throw new ApiError(403, 'PLAN_REQUIRED', 'Tienda sin acceso a compras PRO');
+  }
 }

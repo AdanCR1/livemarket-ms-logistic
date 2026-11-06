@@ -22,7 +22,7 @@ async function requestMS2(path: string, body: unknown, env: InventoryEnv) {
     throw new ApiError(503, 'INVENTORY_UNAVAILABLE', 'MS2 no disponible');
   }
   const json = await response.json().catch(() => null) as any;
-  if (!response.ok) throw new ApiError(response.status === 409 ? 409 : 502, 'INVENTORY_ERROR',
+  if (!response.ok || !json || json.success === false) throw new ApiError(response.status === 409 ? 409 : 502, 'INVENTORY_ERROR',
     typeof json?.error === 'string' ? json.error : 'Error de inventario');
   return json;
 }
@@ -38,7 +38,13 @@ export async function reserveInventory(body: {
   }
   return res;
 }
-export const releaseInventory = (reservation_id: string, env: InventoryEnv) =>
-  requestMS2('/api/internal/inventory/release', { reservation_id }, env);
-export const commitInventory = (reservation_id: string, env: InventoryEnv) =>
-  requestMS2('/api/internal/inventory/commit', { reservation_id }, env);
+async function finishInventory(operation: 'commit' | 'release', reservation_id: string, env: InventoryEnv) {
+  const result = await requestMS2('/api/internal/inventory/' + operation, { reservation_id }, env);
+  const state = operation === 'commit' ? 'COMMITTED' : 'RELEASED';
+  const legacy = operation === 'commit' ? result.committed : result.released;
+  if (result.success !== true || (result.data?.state !== state && legacy !== true))
+    throw new ApiError(502, 'INVALID_MS2_RESPONSE', 'MS2 no confirmó el estado de la reserva');
+  return result;
+}
+export const releaseInventory = (reservation_id: string, env: InventoryEnv) => finishInventory('release', reservation_id, env);
+export const commitInventory = (reservation_id: string, env: InventoryEnv) => finishInventory('commit', reservation_id, env);

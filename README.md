@@ -137,3 +137,18 @@ Mantener el binding desactivado hasta aplicar y probar en DEV las RPC nuevas de 
 ## C2 · Verificación de participantes para MS5
 
 `src/routes/chat-access.routes.ts` monta GET `/api/ms5/order-access/:id` desde `src/index.ts`. Requiere `X-Internal-Key` con `MS5_INTERNAL_KEY` privado de Wrangler y el Bearer original de MS1. `src/middleware/auth.ts` valida el JWT. Responde `{success:true,data:{order_id,store_id}}` únicamente al comprador o comercio del pedido. Devuelve 401 sin credenciales válidas, 400 con ID inválido, 404 a otro usuario o DRIVER y 503 ante error de datos. No devuelve dirección, identidad del comprador ni estado financiero. No cambia SQL ni jobs. Verificar con `pnpm exec tsc --noEmit` y Wrangler dry-run. Para revertir, quitar el montaje, ruta y binding del contrato.
+## Auditoría local y Cloudflare · 5 de noviembre de 2026
+
+`src/routes/internal.routes.ts` registraba una segunda ruta como si fuera un handler Hono. La prueba reprodujo `TypeError: handler is not a function` y ahora ambas rutas registran por separado el mismo middleware. `/api/internal/payments/events` sigue usando `PAYMENTS_INTERNAL_KEY`; `/reconcile` y `/expire` usan `MS4_INTERNAL_KEY`. Se conserva la guarda de inventario.
+
+El consumidor admite el importe numérico de eventos históricos y lo normaliza a cadena antes de `ms4_apply_payment_event`. `src/services/payment-events.service.ts` devuelve 409 si la RPC rechaza lógicamente la operación, incluso con HTTP 200 de PostgREST. Se conserva el ID del evento. No se aplicó ni reenvió el pago histórico de la auditoría.
+
+`src/services/plan.service.ts` concentra la consulta de MS6 para la ruta pública y para creación de pedidos. `src/routes/store-access.routes.ts` responde 503 ante indisponibilidad y 200 con `can_accept_orders:false` cuando MS6 deniega el plan. No hay fallback PRO. `src/routes/payment-quote.routes.ts` distingue 404 de un pedido ausente y 503 de un fallo de datos y siempre devuelve un booleano `payable`.
+
+`src/services/order.service.ts` valida que el reintento coincida en tienda y artículos, y compara la fecha por instante para admitir la serialización UTC de PostgreSQL. `src/services/inventory.service.ts` exige confirmación lógica en commit/release. El reconciliador informa RETRY/UNKNOWN y no marca DONE ante fallo de confirmación o acción desconocida.
+
+`wrangler.jsonc` incorpora `global_fetch_strictly_public` para las peticiones HTTP entre Workers publicados. Se conservan las claves internas. La consulta directa a MS6 publicado dio 200 mientras MS4 publicado registró un 404 hacia ese mismo host. La verificación final del flag exige un despliegue autorizado.
+
+No hay migración MS4 ni cambios de cron. Archivos adicionales de prueba en `tests/{register-ts.mjs,internal-routes.test.mjs,plans.test.mjs,checkout.test.mjs,inventory.test.mjs}`. Ejecutar `pnpm exec tsc --noEmit`, `node --experimental-transform-types --import ./tests/register-ts.mjs --test tests/internal-routes.test.mjs tests/plans.test.mjs tests/checkout.test.mjs tests/inventory.test.mjs tests/delivery-access.test.mjs` y `pnpm exec wrangler deploy --dry-run`. Las pruebas de checkout usan fixtures y no reservan stock real. El informe y la matriz de configuración están en el frontend, `docs/AUDITORIA_INTEGRAL_WORKERS.md`.
+
+Para desplegar, revisar primero las URL publicadas y bindings privados y después aprobar `pnpm exec wrangler deploy`. La reversión restaura los archivos fuente y el flag anterior. No requiere alterar datos ni habilitar operaciones financieras.

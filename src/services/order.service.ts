@@ -32,7 +32,13 @@ export async function placeOrder(body:Input,actor:Actor,key:string,env:Env){
  const previous=await findOrderByRequest(actor.id,key);
  if(previous){
   const existing=await getOrder(previous.id);
-  if(existing.pickup_deadline===body.pickup_deadline)return existing;
+  const itemKey=(item:{product_id:string;variant_id?:string|null;quantity:number})=>
+   `${item.product_id}:${item.variant_id??''}:${item.quantity}`;
+  if(existing.store_id!==body.store_id || existing.delivery_type!==body.delivery_type ||
+    !Array.isArray(existing.order_items) ||
+    JSON.stringify(existing.order_items.map(itemKey).sort())!==JSON.stringify(body.items.map(itemKey).sort()))
+   throw new ApiError(409,'IDEMPOTENCY_CONFLICT','La clave corresponde a otro pedido');
+  if(existing.pickup_deadline && Date.parse(existing.pickup_deadline)===Date.parse(body.pickup_deadline))return existing;
   if(existing.pickup_deadline)throw new ApiError(409,'IDEMPOTENCY_CONFLICT','Pedido existente con otra fecha de recogida');
   await schedule(previous.id,actor,body.pickup_deadline);
   return getOrder(previous.id);
