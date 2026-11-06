@@ -3,5 +3,18 @@
   "name": "livemarket-ms-logistic",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-30",
-  "compatibility_flags": ["nodejs_compat"]
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "MS6_URL": "https://livemarket-ms-payments.soportenonis.workers.dev",
+    "MS2_URL": "https://livemarket-ms-catalog.jasoncortezreyes.workers.dev"
+  },
+  "secrets": {
+    "required": [
+      "PAYMENTS_INTERNAL_KEY",
+      "MS2_INTERNAL_KEY",
+      "MS4_INTERNAL_KEY",
+      "JWT_SECRET",
+      "SUPABASE_SERVICE_ROLE_KEY"
+    ]
+  }
 }
