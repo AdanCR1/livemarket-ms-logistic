@@ -31,22 +31,12 @@ test('eventos de pago requieren la clave de pagos, no la clave del job', async (
   }, env);
   assert.equal(response.status, 401);
 });
-test('acepta el amount numérico del productor y rechaza un fallo lógico de la RPC', async t => {
-  let succeeds = true;
-  t.mock.method(globalThis, 'fetch', async (url, options) => {
-    assert.ok(String(url).endsWith('/rest/v1/rpc/ms4_apply_payment_event'));
-    const body = JSON.parse(options.body);
-    assert.equal(body.p_event.amount, '20');
-    return Response.json({ success: succeeds });
-  });
-  initDb({ SUPABASE_URL: 'https://database.invalid', SUPABASE_SERVICE_ROLE_KEY: 'fixture-service-key' });
-  const body = { event_id: crypto.randomUUID(), payment_id: crypto.randomUUID(),
-    order_id: crypto.randomUUID(), amount: 20, status: 'PAID', currency: 'BOB' };
-  const send = () => app().request('/api/internal/payments/events', {
-    method: 'POST', headers: { 'X-Internal-Key': env.PAYMENTS_INTERNAL_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  }, env);
-  assert.equal((await send()).status, 200);
-  succeeds = false;
-  assert.equal((await send()).status, 409);
+test('no aplica un evento cuando MS6 no confirma la fecha persistida', async t => {
+  let calls=0;
+  t.mock.method(globalThis,'fetch',async()=>{calls++;return Response.json({success:false},{status:503});});
+  const body={event_id:crypto.randomUUID(),payment_id:crypto.randomUUID(),order_id:crypto.randomUUID(),amount:20,status:'PAID',currency:'BOB'};
+  const response=await app().request('/api/internal/payments/events',{
+    method:'POST',headers:{'X-Internal-Key':env.PAYMENTS_INTERNAL_KEY,'Content-Type':'application/json'},body:JSON.stringify(body)
+  },{...env,MS6_URL:'https://payments.invalid'});
+  assert.equal(response.status,503);assert.equal(calls,1);
 });

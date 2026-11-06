@@ -48,3 +48,11 @@ async function finishInventory(operation: 'commit' | 'release', reservation_id: 
 }
 export const releaseInventory = (reservation_id: string, env: InventoryEnv) => finishInventory('release', reservation_id, env);
 export const commitInventory = (reservation_id: string, env: InventoryEnv) => finishInventory('commit', reservation_id, env);
+
+export async function inventoryStatus(reservation_id: string, env: InventoryEnv) {
+  const result = await requestMS2('/api/internal/inventory/status', { reservation_id }, env);
+  if (result.success !== true || result.data?.id !== reservation_id ||
+      !['RESERVED','COMMITTED','RELEASED'].includes(result.data?.state))
+    throw new ApiError(502, 'INVALID_MS2_RESPONSE', 'Estado de reserva inválido');
+  return result.data as { id: string; store_id: string; state: string; expires_at: string };
+}

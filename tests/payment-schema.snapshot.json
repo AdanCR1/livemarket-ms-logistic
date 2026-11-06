@@ -1,0 +1,398 @@
+{
+  "logistic": {
+    "rpc": {
+      "/rpc/ms4_apply_payment_event": {
+        "post": {
+          "parameters": [
+            {
+              "in": "body",
+              "name": "args",
+              "required": true,
+              "schema": {
+                "properties": {
+                  "p_event": {
+                    "format": "jsonb"
+                  }
+                },
+                "required": [
+                  "p_event"
+                ],
+                "type": "object"
+              }
+            },
+            {
+              "$ref": "#/parameters/preferParams"
+            }
+          ],
+          "produces": [
+            "application/json",
+            "application/vnd.pgrst.object+json;nulls=stripped",
+            "application/vnd.pgrst.object+json"
+          ],
+          "responses": {
+            "200": {
+              "description": "OK"
+            }
+          },
+          "tags": [
+            "(rpc) ms4_apply_payment_event"
+          ]
+        }
+      },
+      "/rpc/ms4_expire_orders": {
+        "post": {
+          "parameters": [
+            {
+              "in": "body",
+              "name": "args",
+              "required": true,
+              "schema": {
+                "type": "object"
+              }
+            },
+            {
+              "$ref": "#/parameters/preferParams"
+            }
+          ],
+          "produces": [
+            "application/json",
+            "application/vnd.pgrst.object+json;nulls=stripped",
+            "application/vnd.pgrst.object+json"
+          ],
+          "responses": {
+            "200": {
+              "description": "OK"
+            }
+          },
+          "tags": [
+            "(rpc) ms4_expire_orders"
+          ]
+        }
+      }
+    },
+    "tables": {
+      "inventory_outbox": {
+        "required": [
+          "id",
+          "order_id",
+          "reservation_id",
+          "action",
+          "state",
+          "attempts",
+          "next_attempt_at",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "default": "gen_random_uuid()",
+            "description": "Note:\nThis is a Primary Key.<pk/>",
+            "format": "uuid",
+            "type": "string"
+          },
+          "order_id": {
+            "description": "Note:\nThis is a Foreign Key to `orders.id`.<fk table='orders' column='id'/>",
+            "format": "uuid",
+            "type": "string"
+          },
+          "reservation_id": {
+            "format": "text",
+            "type": "string"
+          },
+          "action": {
+            "format": "text",
+            "type": "string"
+          },
+          "state": {
+            "default": "PENDING",
+            "format": "text",
+            "type": "string"
+          },
+          "attempts": {
+            "default": 0,
+            "format": "int32",
+            "type": "integer"
+          },
+          "next_attempt_at": {
+            "default": "now()",
+            "format": "timestamp with time zone",
+            "type": "string"
+          },
+          "created_at": {
+            "default": "now()",
+            "format": "timestamp with time zone",
+            "type": "string"
+          },
+          "updated_at": {
+            "default": "now()",
+            "format": "timestamp with time zone",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "orders": {
+        "required": [
+          "id",
+          "store_id",
+          "customer_id",
+          "idempotency_key",
+          "reservation_id",
+          "reservation_expires_at",
+          "status",
+          "payment_status",
+          "delivery_type",
+          "currency",
+          "total",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "default": "gen_random_uuid()",
+            "description": "Note:\nThis is a Primary Key.<pk/>",
+            "format": "uuid",
+            "type": "string"
+          },
+          "store_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "customer_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "format": "text",
+            "type": "string"
+          },
+          "reservation_id": {
+            "format": "text",
+            "type": "string"
+          },
+          "reservation_expires_at": {
+            "format": "timestamp with time zone",
+            "type": "string"
+          },
+          "status": {
+            "default": "PENDING_PAYMENT",
+            "format": "text",
+            "type": "string"
+          },
+          "payment_status": {
+            "default": "PENDING",
+            "format": "text",
+            "type": "string"
+          },
+          "delivery_type": {
+            "format": "text",
+            "type": "string"
+          },
+          "address_snapshot": {
+            "format": "text",
+            "type": "string"
+          },
+          "notes": {
+            "format": "text",
+            "type": "string"
+          },
+          "currency": {
+            "default": "BOB",
+            "format": "text",
+            "type": "string"
+          },
+          "total": {
+            "format": "numeric",
+            "type": "number"
+          },
+          "created_at": {
+            "default": "now()",
+            "format": "timestamp with time zone",
+            "type": "string"
+          },
+          "updated_at": {
+            "default": "now()",
+            "format": "timestamp with time zone",
+            "type": "string"
+          },
+          "pickup_deadline": {
+            "format": "timestamp with time zone",
+            "type": "string"
+          },
+          "buyer_role": {
+            "format": "text",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "order": [
+      {
+        "id": "c1998ee1-eae2-4616-a228-956bec148eff",
+        "status": "PENDING_PAYMENT",
+        "payment_status": "PENDING",
+        "reservation_id": "res_e9828e00-f4f1-4aa8-9601-5ab5acee9084",
+        "reservation_expires_at": "2026-11-06T03:54:19.105612+00:00",
+        "total": 20,
+        "currency": "BOB",
+        "created_at": "2026-11-06T03:39:19.29045+00:00"
+      }
+    ]
+  },
+  "catalog": {
+    "tables": {
+      "ms2_inventory_reservations": {
+        "required": [
+          "id",
+          "request_id",
+          "store_id",
+          "requested_items",
+          "items",
+          "expires_at",
+          "state"
+        ],
+        "properties": {
+          "id": {
+            "default": "('res_'::text || (gen_random_uuid())::text)",
+            "description": "Note:\nThis is a Primary Key.<pk/>",
+            "format": "text",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "text",
+            "type": "string"
+          },
+          "store_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "requested_items": {
+            "format": "jsonb"
+          },
+          "items": {
+            "format": "jsonb"
+          },
+          "expires_at": {
+            "format": "timestamp with time zone",
+            "type": "string"
+          },
+          "state": {
+            "default": "RESERVED",
+            "format": "text",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "reservation": [
+      {
+        "id": "res_e9828e00-f4f1-4aa8-9601-5ab5acee9084",
+        "store_id": "0b6d1a5c-fd9f-4196-8d18-2ccdab84b84b",
+        "state": "RESERVED",
+        "expires_at": "2026-11-06T03:54:19.105612+00:00"
+      }
+    ]
+  },
+  "payments": {
+    "tables": {
+      "payments": {
+        "required": [
+          "id",
+          "purpose",
+          "reference_id",
+          "amount",
+          "currency",
+          "status",
+          "idempotency_key",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "default": "gen_random_uuid()",
+            "description": "Note:\nThis is a Primary Key.<pk/>",
+            "format": "uuid",
+            "type": "string"
+          },
+          "purpose": {
+            "enum": [
+              "ORDER_PAYMENT",
+              "SUBSCRIPTION_UPGRADE"
+            ],
+            "format": "public.qr_purpose",
+            "type": "string"
+          },
+          "reference_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "target_store_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "requested_plan": {
+            "enum": [
+              "FREE",
+              "PRO",
+              "ENTERPRISE"
+            ],
+            "format": "public.subscription_plan",
+            "type": "string"
+          },
+          "amount": {
+            "format": "numeric",
+            "type": "number"
+          },
+          "currency": {
+            "default": "BOB",
+            "format": "character varying",
+            "maxLength": 3,
+            "type": "string"
+          },
+          "status": {
+            "default": "PENDING",
+            "enum": [
+              "PENDING",
+              "PAID",
+              "CANCELLED",
+              "EXPIRED",
+              "REFUNDED"
+            ],
+            "format": "public.payment_status",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "format": "text",
+            "type": "string"
+          },
+          "payer_account_id": {
+            "description": "Note:\nThis is a Foreign Key to `bank_accounts.id`.<fk table='bank_accounts' column='id'/>",
+            "format": "uuid",
+            "type": "string"
+          },
+          "paid_at": {
+            "format": "timestamp with time zone",
+            "type": "string"
+          },
+          "created_at": {
+            "default": "now()",
+            "format": "timestamp with time zone",
+            "type": "string"
+          },
+          "updated_at": {
+            "default": "now()",
+            "format": "timestamp with time zone",
+            "type": "string"
+          },
+          "order_customer_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  }
+}

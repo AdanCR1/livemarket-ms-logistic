@@ -6,7 +6,6 @@ import { zValidator } from '@hono/zod-validator'
 import { ApiError } from '../lib/errors.js'
 import { handlePaymentEvent } from '../services/payment-events.service.js'
 import { db } from '../lib/supabase.js'
-import { commitInventory,releaseInventory } from '../services/inventory.service.js'
 import type { AppEnv } from '../middleware/auth.js'
 const r=new Hono<AppEnv>()
 function equals(a: string, b: string) {
@@ -50,7 +49,7 @@ r.use('/expire', authorizeJob);
 const eventSchema=z.object({event_id:z.uuid(),order_id:z.uuid(),payment_id:z.uuid(),status:z.enum(['PAID','FAILED']),
  amount:z.preprocess(value=>typeof value==='number'&&Number.isFinite(value)?String(value):value,
   z.string().regex(/^\d+(\.\d{1,2})?$/)),currency:z.literal('BOB')})
-r.post('/payments/events',zValidator('json',eventSchema),async c=>c.json({success:true,data:await handlePaymentEvent(c.req.valid('json'))}))
+r.post('/payments/events',zValidator('json',eventSchema),async c=>c.json({success:true,data:await handlePaymentEvent(c.req.valid('json'),c.env)}))
 // Called by controlled job/cron, idempotent MS2 methods; handles at-least-once delivery.
 r.post('/reconcile',async c=>{
  if(c.env.MS2_INVENTORY_OUTBOX_VERIFIED!=='true')
@@ -60,19 +59,25 @@ r.post('/reconcile',async c=>{
  const results=[]
  for(const job of data||[]){
   try {
-   if(job.action==='COMMIT')await commitInventory(job.reservation_id,c.env)
-   else if(job.action==='RELEASE')await releaseInventory(job.reservation_id,c.env)
+   if(job.action==='COMMIT') {
+    const {data:receipt,error:receiptError}=await db.from('ms4_payment_receipts').select('*').eq('order_id',job.order_id).maybeSingle();
+    if(receiptError||!receipt)throw new Error('PAYMENT_RECEIPT_REQUIRED');
+    await handlePaymentEvent({...receipt,status:'PAID',amount:String(receipt.amount)},c.env);
+   }
+   // A clock-only release cannot exclude a committed debit with delayed notification.
+   else if(job.action==='RELEASE')throw new Error('FINANCIAL_CLEARANCE_REQUIRED')
    else throw new Error('INVALID_INVENTORY_ACTION')
    const {error:ackError}=await db.from('inventory_outbox').update({state:'DONE',updated_at:new Date().toISOString()}).eq('id',job.id).eq('state','PENDING')
    if(ackError)throw ackError
    results.push({id:job.id,status:'DONE'})
-  }catch{
+  }catch(error){
    const {error:retryError}=await db.from('inventory_outbox').update({
     attempts:job.attempts+1,
     next_attempt_at:new Date(Date.now()+Math.min(3600000,1000*2**Math.min(job.attempts+1,10))).toISOString()
    }).eq('id',job.id).eq('state','PENDING')
    const status=retryError?'UNKNOWN':'RETRY'
-   console.warn({component:'MS4_INVENTORY_OUTBOX',jobId:job.id,code:status})
+   console.warn({component:'MS4_INVENTORY_OUTBOX',jobId:job.id,code:status,
+    reason:error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:'INVENTORY_RETRY'})
    results.push({id:job.id,status})
   }
  }

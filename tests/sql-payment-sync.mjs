@@ -1,0 +1,15 @@
+import {readFile} from 'node:fs/promises';
+const {PGlite}=await import(process.env.PGLITE_MODULE||'@electric-sql/pglite');
+const pg=new PGlite();
+const sql=async path=>pg.exec(await readFile(new URL(path,import.meta.url),'utf8'));
+await pg.exec(`create role anon;create role authenticated;create role service_role;
+create table public.orders(id uuid primary key,store_id uuid,customer_id uuid,idempotency_key text,reservation_id text,reservation_expires_at timestamptz,status text,payment_status text,delivery_type text,currency text,total numeric,created_at timestamptz,updated_at timestamptz);
+create table public.inventory_outbox(id uuid primary key default gen_random_uuid(),order_id uuid references orders(id),reservation_id text,action text,state text default 'PENDING',attempts int default 0,next_attempt_at timestamptz default now(),created_at timestamptz default now(),updated_at timestamptz default now());
+create function public.ms4_apply_payment_event(jsonb) returns jsonb language sql as 'select ''{}''::jsonb';
+create function public.ms4_expire_orders() returns jsonb language sql as 'select ''{}''::jsonb';`);
+await sql('../sql/20261106_timely_payment_receipts.sql');
+await sql('../sql/test_timely_payment_receipts.sql');
+if((await pg.query('select count(*)::int n from orders')).rows[0].n!==0)throw Error('ROLLBACK failed');
+await sql('../sql/20261106_timely_payment_receipts.rollback.sql');
+await pg.close();
+console.log('MS4 PostgreSQL: delayed payment, replay, identities, amount, release guard, late payment, safe expiry, fixture ROLLBACK, migration rollback PASS');
