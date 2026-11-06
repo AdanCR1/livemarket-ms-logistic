@@ -9,7 +9,7 @@ export function isAssignedDriver(actor: Actor, delivery: DeliveryParticipants) {
 
 export function canReadDelivery(actor: Actor, delivery: DeliveryParticipants) {
   return isAssignedDriver(actor, delivery) ||
-    (actor.role === 'B2C' && actor.id === delivery.customer_id) ||
+    (['B2C','B2B'].includes(actor.role) && actor.id === delivery.customer_id) ||
     (actor.role === 'B2B' && actor.storeId === delivery.store_id)
 }
 

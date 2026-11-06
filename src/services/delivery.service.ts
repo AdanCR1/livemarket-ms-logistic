@@ -54,6 +54,9 @@ export async function createDelivery(
 
 export async function pairDelivery(id: string, code: string, actor: Actor) {
   if (actor.role !== 'DRIVER') throw new ApiError(403, 'FORBIDDEN', 'Requiere rol DRIVER')
+  const delivery=await getDelivery(id)
+  if(!actor.storeId||actor.storeId!==delivery.store_id||
+     (delivery.driver_id&&delivery.driver_id!==actor.id))throw new ApiError(404,'NOT_FOUND','Envío no encontrado')
   return callDelivery('ms4_pair_delivery', {
     p_delivery_id: id,
     p_driver_id: actor.id,
@@ -76,7 +79,7 @@ export async function setLocation(id: string, actor: Actor, lat: number, lng: nu
 
 export async function confirmDelivery(id: string, actor: Actor) {
   const delivery = await getDelivery(id)
-  if (actor.role !== 'B2C' || delivery.customer_id !== actor.id) {
+  if (!['B2C','B2B'].includes(actor.role) || delivery.customer_id !== actor.id) {
     throw new ApiError(404, 'NOT_FOUND', 'Envío no encontrado')
   }
   return callDelivery('ms4_delivery_confirm', {

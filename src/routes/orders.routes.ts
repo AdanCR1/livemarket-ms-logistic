@@ -2,10 +2,17 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { auth, type AppEnv } from '../middleware/auth.js';
 import { orderSchema,statusSchema } from '../validators/orders.schema.js';
-import { placeOrder,changeOrder } from '../services/order.service.js';
+import { placeOrder,changeOrder,deliveryAvailability } from '../services/order.service.js';
 import { getOrder,listOrders } from '../repositories/orders.repository.js';
 import { ApiError } from '../lib/errors.js';
 const r=new Hono<AppEnv>();r.use('*',auth);
+r.get('/delivery-availability/:storeId',async c=>{
+ const id=c.req.param('storeId');
+ if(!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id))throw new ApiError(400,'INVALID_STORE','Tienda inválida');
+ if(!['B2C','B2B'].includes(c.get('actor').role))throw new ApiError(403,'FORBIDDEN','No autorizado');
+ c.header('Cache-Control','no-store');
+ return c.json({success:true,data:{delivery_available:await deliveryAvailability(id,c.env)}});
+});
 r.post('/',zValidator('json',orderSchema),async c=>{
  const result=await placeOrder(c.req.valid('json'),c.get('actor'),c.req.header('Idempotency-Key')||'',c.env);
  return c.json({success:true,data:result},201);
