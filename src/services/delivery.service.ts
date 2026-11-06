@@ -38,7 +38,7 @@ export async function createDelivery(
       driver_phone: info.driver_phone,
       pairing_code_hash: codeHash,
       pairing_code_expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
-      status: 'PENDING',
+      status: 'PENDING_PAIRING',
     })
     .select('id')
     .single()
