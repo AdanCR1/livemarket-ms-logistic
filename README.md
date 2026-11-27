@@ -48,7 +48,7 @@ Microservicio HTTP para gestionar pedidos, reservas de inventario y entregas de 
 - El JWT debe incluir `sub` y un rol `B2C`, `B2B` o `DRIVER`. Para comercios, `store_id` identifica el comercio asociado al actor.
 - Los pedidos se restringen por propietario: el comprador accede a sus pedidos y el comercio a los de su tienda. Un conductor no puede listar pedidos.
 - Las rutas internas no usan JWT de usuario; validan `X-Internal-Key` con una clave interna. El endpoint de eventos de pago usa `PAYMENTS_INTERNAL_KEY`; las demás rutas internas usan `MS4_INTERNAL_KEY`.
-- `requirePlus` comprueba que el plan recibido sea `PLUS`. La integración con el microservicio de suscripciones está indicada como pendiente y esta comprobación no obtiene el plan por sí misma.
+- `requirePlus` comprueba que el plan recibido sea `PLUS`. El flujo de creación de pedidos usa `getStorePlan` de `plan.service.ts`, que consulta MS6.
 
 ### Pedidos e inventario
 
@@ -63,8 +63,8 @@ Los pedidos aceptan `PICKUP` o `DELIVERY`; este último exige dirección. Cada p
 ### Pagos y conciliación
 
 - `POST /api/internal/payments/events` valida identificadores UUID, estado `PAID` o `FAILED`, importe decimal y moneda `BOB`; la RPC `ms4_apply_payment_event` aplica el evento.
-- `POST /api/internal/reconcile` procesa hasta 30 elementos pendientes de `inventory_outbox`. Según la acción, llama a MS2 para confirmar o liberar la reserva. Si hay un error, incrementa los intentos y programa un reintento con espera exponencial, limitada a una hora.
-- `POST /api/internal/expire` llama a `ms4_expire_orders`, que expira pedidos pendientes y encola la liberación de inventario de forma atómica en PostgreSQL.
+- `POST /api/internal/reconcile` procesa hasta 30 elementos pendientes de `inventory_outbox`. Los trabajos COMMIT requieren un recibo y pasan por el flujo de pago verificado. Los RELEASE se difieren hasta contar con autorización financiera segura. Si hay un error, incrementa los intentos y programa un reintento con espera exponencial, limitada a una hora.
+- `POST /api/internal/expire` llama a `ms4_expire_orders`, que, con la migración de recibos instalada, difiere la liberación por tiempo cuando falta autorización financiera.
 - Estos endpoints internos deben ser invocados por sistemas autorizados. El archivo `wrangler.jsonc` no configura un cron para ejecutarlos.
 
 ### Envíos y conductores
@@ -98,7 +98,7 @@ Salvo `/health`, los endpoints bajo `/api/orders`, `/api/deliveries` y `/api/dri
 | `GET` | `/api/drivers/deliveries` | `DRIVER`; lista sus envíos. |
 | `POST` | `/api/internal/payments/events` | Sistema de pagos; procesa un evento autenticado. |
 | `POST` | `/api/internal/reconcile` | Sistema interno; reconcilia reservas pendientes. |
-| `POST` | `/api/internal/expire` | Sistema interno; expira pedidos y encola liberaciones. |
+| `POST` | `/api/internal/expire` | Sistema interno; ejecuta la política de expiración de la base. |
 
 ## Configuración
 
@@ -115,7 +115,8 @@ Define estas variables en el entorno local o en la configuración segura del ent
 | `MS2_INTERNAL_KEY` | Sí | Clave para invocar endpoints internos de MS2. |
 | `PAYMENTS_INTERNAL_KEY` | Sí | Clave para recibir eventos de pagos. |
 | `MS4_INTERNAL_KEY` | Sí | Clave para las demás rutas internas y el HMAC de vinculación. |
-| `MS6_URL` | No | URL base de MS6 Escrow; por defecto `http://localhost:8788`. |
+| `MS1_URL` | Para DELIVERY | URL base de MS1 para verificar flota activa. |
+| `MS6_URL` | No | URL base de MS6 para verificar planes y pagos. |
 | `PORT` | No | Puerto del servidor local; por defecto `8787`. |
 | `CORS_ORIGIN` | No | Origen permitido por CORS; por defecto `http://localhost:4321`. |
 
@@ -126,9 +127,9 @@ El esquema de base de datos debe proporcionar las tablas y funciones RPC utiliza
 
 `src/services/delivery-access.ts` y `src/services/delivery.service.ts` comprueban conductor asignado y tienda para cambios de estado y ubicación. POST/PATCH `/api/deliveries/:id/location` acepta `{lat,lng}` o `{latitude,longitude}` numéricos. Responde 400 para coordenadas inválidas, 403 si no está asignado y 409 si la entrega no está en tránsito. `src/middleware/auth.ts` requiere expiración además de firma, emisor y rol. Se conservan `JWT_SECRET` y `JWT_ISSUER` en bindings. Las RPC existentes todavía deben verificar atomicidad.
 
-`src/routes/internal.routes.ts` obtiene las claves internas de `c.env` y pasa los bindings de MS2 a commit/release. El job POST `/api/internal/reconcile` requiere `X-Internal-Key: <MS4_INTERNAL_KEY>`, sin cuerpo. Devuelve 503 hasta verificar el contrato de reservas y establecer `MS2_INVENTORY_OUTBOX_VERIFIED=true` en DEV. Al habilitarlo, devuelve `{success:true,data:[{id,status}]}` con `DONE` o `RETRY`. MS2 necesita reservas persistidas y release idempotente por ID. El código local de MS2 no cumple ese contrato. `wrangler.jsonc` habilita `nodejs_compat` para los usos existentes de `node:crypto` y `process.env`. Las dependencias de desarrollo TypeScript y tipos de Node están en `package.json` y el lockfile.
+`src/routes/internal.routes.ts` obtiene las claves internas de `c.env` y pasa los bindings de MS2 a commit/release. El job POST `/api/internal/reconcile` requiere `X-Internal-Key: <MS4_INTERNAL_KEY>`, sin cuerpo. Devuelve 503 hasta verificar el contrato de reservas y establecer `MS2_INVENTORY_OUTBOX_VERIFIED=true` en DEV. Al habilitarlo, devuelve `{success:true,data:[{id,status}]}` con `DONE`, `RETRY` o `UNKNOWN`. MS2 necesita reservas persistidas y release idempotente por ID. MS2 incluye las RPC versionadas de reserva, confirmación y liberación. `wrangler.jsonc` habilita `nodejs_compat` para los usos existentes de `node:crypto` y `process.env`. Las dependencias de desarrollo TypeScript y tipos de Node están en `package.json` y el lockfile.
 
-No hay SQL nuevo. `pnpm exec node --test tests/delivery-access.test.mjs` verifica guardias y coordenadas con fixtures. Usar `pnpm dev` en DEV y contrastar las rutas con JWT de comprador, comercio, conductor asignado y conductor ajeno. El SQL local no confirma las definiciones instaladas. Mantener la creación DELIVERY deshabilitada hasta validar tarifa, flota activa, estados, confirmación y escrow. Para revertir, restaurar los archivos fuente, configuración y dependencias de esta sección y quitar el helper y su prueba.
+No hay SQL nuevo. `pnpm exec node --test tests/delivery-access.test.mjs` verifica guardias y coordenadas con fixtures. Usar `pnpm dev` en DEV y contrastar las rutas con JWT de comprador, comercio, conductor asignado y conductor ajeno. El SQL local no confirma las definiciones instaladas. La creación DELIVERY requiere PRO o ENTERPRISE vigente y flota activa consultada en MS1. Para revertir, restaurar los archivos fuente, configuración y dependencias de esta sección y quitar el helper y su prueba.
 ## C1 · Alta de pedidos y reservas
 
 `src/services/order.service.ts` requiere `MS2_INVENTORY_OUTBOX_VERIFIED=true` antes de crear una reserva nueva desde POST `/api/orders`. Con el binding ausente devuelve 503 `INVENTORY_NOT_VERIFIED` antes de llamar a MS2. Conserva la consulta de plan y la recuperación por clave de pedidos ya persistidos. Las órdenes antiguas se reconcilian por separado porque el MS2 legado no persistía su ID de reserva.
@@ -152,3 +153,7 @@ El consumidor admite el importe numérico de eventos históricos y lo normaliza 
 No hay migración MS4 ni cambios de cron. Archivos adicionales de prueba en `tests/{register-ts.mjs,internal-routes.test.mjs,plans.test.mjs,checkout.test.mjs,inventory.test.mjs}`. Ejecutar `pnpm exec tsc --noEmit`, `node --experimental-transform-types --import ./tests/register-ts.mjs --test tests/internal-routes.test.mjs tests/plans.test.mjs tests/checkout.test.mjs tests/inventory.test.mjs tests/delivery-access.test.mjs` y `pnpm exec wrangler deploy --dry-run`. Las pruebas de checkout usan fixtures y no reservan stock real. El informe y la matriz de configuración están en el frontend, `docs/AUDITORIA_INTEGRAL_WORKERS.md`.
 
 Para desplegar, revisar primero las URL publicadas y bindings privados y después aprobar `pnpm exec wrangler deploy`. La reversión restaura los archivos fuente y el flag anterior. No requiere alterar datos ni habilitar operaciones financieras.
+
+## Recibos de pagos oportunos
+
+`sql/20261106_timely_payment_receipts.sql` incorpora el recibo idempotente y separa la fecha de pago de la fecha de procesamiento. MS4 verifica el comprobante persistido en MS6 y consulta la reserva en MS2 antes de confirmar el pedido. Una reserva liberada o un pago fuera de plazo requieren resolución. Consulta [la guía de sincronización](./ENTREGA_SINCRONIZACION_PAGOS.md) para el orden de migración y pruebas.

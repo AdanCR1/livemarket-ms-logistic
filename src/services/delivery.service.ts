@@ -36,12 +36,15 @@ export async function createDelivery(
       driver_id: info.driver_id || null,
       driver_name: info.driver_name,
       driver_phone: info.driver_phone,
+      dropoff_lat: order.dropoff_lat ?? null,
+      dropoff_lng: order.dropoff_lng ?? null,
+      route_geojson: order.route_geojson ?? null,
       pairing_code_hash: codeHash,
       pairing_code_expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
       status: 'PENDING_PAIRING',
     })
     .select('id')
-    .single()
+    .single();
 
   if (error) throw new ApiError(409, 'DELIVERY_CONFLICT', error.message)
 
